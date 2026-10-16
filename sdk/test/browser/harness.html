@@ -1,0 +1,38 @@
+<!doctype html><meta charset="utf-8"><body style="margin:0;background:#222">
+<canvas id="out" width="640" height="800"></canvas>
+<script src="vto-test.js"></script>
+<script>
+// Synthetic "camera frame": a mannequin drawn from the SAME landmark coordinates the fake pose reports.
+const L = { 11: [250, 220], 12: [390, 220], 13: [225, 335], 14: [415, 335], 15: [215, 440], 16: [425, 440], 23: [275, 480], 24: [365, 480], 25: [272, 640], 26: [368, 640], 27: [270, 780], 28: [370, 780], 0: [320, 140], 19: [212, 462], 20: [428, 462] };
+function mannequin(opts = {}) {
+  const c = document.createElement('canvas'); c.width = 640; c.height = 800; const x = c.getContext('2d');
+  x.fillStyle = '#6b7a8c'; x.fillRect(0, 0, 640, 800);
+  const skin = '#d9a98a', under = '#7d8696'; x.lineCap = 'round'; x.lineJoin = 'round';
+  const limb = (a, b, w, col) => { x.strokeStyle = col; x.lineWidth = w; x.beginPath(); x.moveTo(...L[a]); x.lineTo(...L[b]); x.stroke(); };
+  limb(23, 25, 62, under); limb(24, 26, 62, under); limb(25, 27, 46, under); limb(26, 28, 46, under);       // legs (neutral shorts-less base)
+  x.fillStyle = under; x.beginPath(); x.moveTo(250, 215); x.lineTo(390, 215); x.lineTo(385, 490); x.lineTo(275, 490); x.closePath(); x.fill();   // torso base
+  limb(11, 13, 36, skin); limb(12, 14, 36, skin); limb(13, 15, 30, skin); limb(14, 16, 30, skin);
+  x.fillStyle = skin; x.beginPath(); x.arc(320, 150, 52, 0, 7); x.fill(); x.fillRect(300, 190, 40, 40);
+  if (opts.armsCross) { x.strokeStyle = skin; x.lineWidth = 30; x.beginPath(); x.moveTo(...L[13]); x.lineTo(330, 370); x.stroke(); }
+  return c;
+}
+function pose(over = {}) { return { width: 640, height: 800, get: (i) => { if (over.drop && over.drop.includes(i)) return null; const p = (over.pts && over.pts[i]) || L[i]; return p ? { x: p[0], y: p[1], z: (over.z && over.z[i]) || 0 } : null; } }; }
+async function show(items, o = {}) {
+  const T = window.VTO_TEST, out = document.getElementById('out'), r = new T.Renderer(out);
+  Object.defineProperty(out, 'clientWidth', { value: 640 }); Object.defineProperty(out, 'clientHeight', { value: 800 });
+  const frame = mannequin(o); frame.videoWidth = 640; frame.videoHeight = 800; frame.readyState = 4;
+  r.mirror = false; r.layout(frame); r.alpha = 1;
+  const adapters = [], info = [];
+  for (const it of items) {
+    const res = await T.resolveGarment([{ url: it.url }], { family: T.familyOf(it.category) });
+    if (!res.ok) { info.push({ category: it.category, ok: false, reason: res.reason }); continue; }
+    const a = T.createAdapter(it.category, { id: it.category, garmentImage: res.url, name: it.category }); await a.load(); adapters.push(a);
+    info.push({ category: it.category, ok: true, mode: res.prepared.mode, guess: res.prepared.guess.category, w: res.prepared.width, h: res.prepared.height });
+  }
+  const p = pose(o.pose || {}); let ok = 0;
+  for (let k = 0; k < 6; k++) for (const a of adapters) ok += a.update(p, k / 30) ? 1 : 0;      // let the smoothing filters settle
+  r.draw(frame, adapters, true, { arms: o.arms ? [{ from: { x: 225, y: 335 }, to: { x: 330, y: 372 }, w: 40 }] : [] });
+  return { info, tracked: ok > 0, hints: adapters.map((a) => a.hint) };
+}
+window.show = show;
+</script>
